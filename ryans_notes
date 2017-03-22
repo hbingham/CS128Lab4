@@ -1,0 +1,78 @@
+
+---Ryan's Notes---
+
+GIT SHIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+if( first time repo setup){
+
+    Clone existing repo into current directory
+    $ git clone address_copied_from_bitbucket
+    $ git clone https://solarpoweredspaz@bitbucket.org/cs128teamcoolcat/lab3.git
+
+} else {
+
+    Sync existing local repo
+    $ git pull origin master
+
+} 
+
+~ Now make changes to the files in the repo
+
+Check if current directory needs to be added or committed, etc
+$ git status
+
+1. Stage changes to be committed
+$ git add *
+
+2. Commit all staged changes to your local repository
+$ git commit -m "message"
+
+3. Upload the local commit to BitBucket
+$ git push origin master
+You use origin to refer to your working branch, 
+and the name that follows is the name of the branch to be uploaded to.
+It's not advised to push to master directly,
+but this is a small team and we can always roll back
+
+
+DOCKER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+List running containers
+$ sudo docker ps
+
+List docker images
+$ sudo docker images
+
+List docker networks
+$ sudo docker network ls
+
+Build image from Dockerfile
+$ sudo docker build 
+
+Rename docker image
+sudo docker images
+sudo docker tag 6ce73c6c2746 lab2img
+
+
+
+Create a network
+1. Create network itself
+$ sudo docker network create --subnet=10.0.0.3/16 mynet
+
+2. Run primary container
+$ sudo docker run -p 8080:8080 --net=mynet --ip=10.0.0.3 -t lab2img
+
+3. Run forwarder container
+$ sudo docker run -p 8081:8080 --net=mynet --ip=10.0.0.4 -e MAINIP=10.0.0.3:8080 lab2img
+
+
+Starting a 2-node Key-Value Store
+sudo docker run -p 8081:8080 --net=mynet --ip=10.0.0.20 -e VIEW="10.0.0.20:8080,10.0.0.21:8080" -e "IPPORT"="10.0.0.20:8080"  lab2img
+sudo docker run -p 8082:8080 --net=mynet --ip=10.0.0.21 -e VIEW="10.0.0.20:8080,10.0.0.21:8080" -e "IPPORT"="10.0.0.21:8080"  lab2img
+
+
+Add a node from terminal
+PUT localhost:8080/kvs/view_update?type=add -d "ip_port=10.0.0.20:8080"
+
+
+Remove node from terminal
+PUT localhost:8080/kvs/view_update?type=remove -d "ip_port=10.0.0.20:8080"
+
