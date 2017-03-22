@@ -65,6 +65,10 @@ def view_update():
 			hashView.append(node)
 	elif type == "remove":
 		if node in hashView:
+			delIndex = hashView.index(node)
+			viewLastInd = int(len(hashView)) -1
+			if delIndex != viewLastInd:
+				hashView[delIndex], hashView[viewLastInd] = hashView[viewLastInd], hashView[delIndex]
 			hashView.remove(node)
 
 	#Set all other ip_views to updated ip_view
@@ -113,12 +117,14 @@ def view_update():
 		someRes = req.get("http://" + node + "/kvs/delDict", timeout=5)
 		if node in ip_view:
 			someRes = req.put("http://" + node + "/kvs/removeView", timeout=5)
-			ip_view.remove(node)
-	elif type == "add":
-		if node not in ip_view:
-			ip_view.append(node)
 
 
+	del ip_view[:]
+	for ip in hashView:
+		ip_view.append(ip)
+
+	print("IP View: " + str(ip_view))
+	print("Hash View: " + str(hashView))
 	retDict = {'msg':'success'}
 	return jsonify(retDict), status.HTTP_200_OK
 
@@ -126,14 +132,20 @@ def view_update():
 
 @app.route('/kvs/<key>', methods = ['GET', 'PUT']) 
 def index(key):
-	strClock = request.form.get('causal_payload')
-	if '.' in strClock:
-		inClock = strClock.split('.')
-	else:
-		inClock = dict()
+	#strClock = request.form.get('causal_payload')
+	#if '.' in strClock:
+	#	inClock = strClock.split('.')
+	#else:
+	#	inClock = dict()
 	theLen = int(len(ip_view))
-	nodeLocate = ryan_hash(key) % theLen
-	if ip_view[nodeLocate] == IPPORT:
+	partitions = int(theLen/K)
+	nodeLocate = ryan_hash(key) % partitions
+	startIndex = nodeLocate * K
+	if int(len(ip_view)) < startIndex + K:
+		endIndex = int(len(ip_view))
+	else:
+		endIndex = startIndex + K
+	if IPPORT in ip_view[startIndex:endIndex]:
 		if request.method == 'PUT':
 			if key in theDict:
 				content = 'replaced: 1, // 0 if key did not exist msg: success\n'
@@ -206,6 +218,8 @@ def compareClocks(thisClock,incClock):
 		if key in thisClock:
 			if incClock[key] > thisClock[key]:
 				thisClock[key] = incClock[key]
+		else:
+			thisClock[key] = incClock[key]
 	return thisClock
 
 def ping(ip):
