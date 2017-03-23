@@ -9,12 +9,14 @@ IPPORT = os.getenv('IPPORT')
 K = int(os.getenv('K'))
 timestamp = 0
 partitionList = list()
-
 if 'VIEW' in os.environ:
 	ip_view = os.getenv('VIEW').split(',')
 else:
 	ip_view = list()
-
+causal_payload = dict()
+if len(ip_view) > 0:
+	for ip in ip_view:
+		causal_payload[ip] = 0
 
 
 
@@ -23,6 +25,7 @@ def getPartitionID():
 	indexIP = ip_view.index(IPPORT)
 	partitionID = int(indexIP/K)
 	retDict = {"msg":"success","partition_id": str(partitionID)}
+	print(str(retDict))
 	return jsonify(retDict), status.HTTP_200_OK
 
 @app.route("/kvs/get_all_partition_ids")
@@ -46,16 +49,17 @@ def getAllPartitionIDs():
 		endIndex = int(len(ip_view))
 	for i in range(startIndex, endIndex):
 		partitionNodes.append(ip_view[i])
+	print(str(partitionNodes))
 	retDict = {"msg":"success","partition_members":partitionNodes}
 	return jsonify(retDict), status.HTTP_200_OK
 	
 
 
-@app.route("/kvs/view_update", methods=["PUT"])
+@app.route("/kvs/update_view", methods=["PUT"])
 def view_update():
 	node = request.form.get("ip_port")
 	type = request.args.get("type")
-	
+	timeStamp = time.clock()
 	hashView = list()
 	for ip in ip_view:
 		hashView.append(ip)
@@ -81,9 +85,10 @@ def view_update():
 	#Set all other ip_views to updated ip_view
 	for server in ip_view: 
 		if server != IPPORT: 
-			req.put("http://" + server + "/kvs/removeView", timeout=1)
-			for server2 in hashView:
-				response = req.put("http://" + server + "/kvs/add/" + server2, timeout=1)
+			if ping(server):
+				req.put("http://" + server + "/kvs/removeView", timeout=1)
+				for server2 in hashView:
+					response = req.put("http://" + server + "/kvs/add/" + server2, timeout=1)
 
 	#Update target node
 
@@ -92,10 +97,10 @@ def view_update():
 	partitions = int((theLen-1)/K)+1
 	if partitions != int((len(ip_view)-1)/K)+1:
 		mustRehash = True
-
-	req.put("http://" + node + "/kvs/removeView", timeout=1)
-	for server in hashView:
-		response = req.put("http://" + node + "/kvs/add/" + server, timeout=1)
+	if type =="add":
+		req.put("http://" + node + "/kvs/removeView", timeout=1)
+		for server in hashView:
+			response = req.put("http://" + node + "/kvs/add/" + server, timeout=1)
 
 	
 	thisPartition = int(hashView.index(IPPORT)/K)
@@ -119,7 +124,7 @@ def view_update():
 					return jsonify(retDict),  status.HTTP_503_UNAVAILABLE
 				someRes = req.get("http://" + hashView[updateIndex] + "/kvs/getDict", timeout=1)
 				someDict = json.loads(someRes.content)
-				someRes = req.get("http://" + server + "/kvs/delDict", timeout=1)
+				someRes = req.get("http://" + hashView[updateIndex] + "/kvs/delDict", timeout=1)
 			for key in someDict:
 				theValue = someDict[key]
 				nodeLocate = ryan_hash(key) % partitions
@@ -153,7 +158,7 @@ def view_update():
 				req.get("http://" + hashView[updateIndex] + "/kvs/delDict", timeout=1)			
 				for key in someDict:
 					theValue = someDict[key]
-					url_str = 'http://' + hashView[updateIndex] + '/kvs/replicate' + key
+					url_str = 'http://' + hashView[updateIndex] + '/kvs/replicate/' + key
 					someRes = req.put(url_str,data={'val':theValue}, timeout=6)
 					
 					
@@ -224,8 +229,8 @@ def view_update():
 					someRes = req.put(url_str,data={'val':theValue}, timeout=6)
 
 	if type == "remove":
-		someRes = req.get("http://" + node + "/kvs/delDict", timeout=5)
-		if node in ip_view:
+		if ping(node):
+			someRes = req.get("http://" + node + "/kvs/delDict", timeout=5)
 			someRes = req.put("http://" + node + "/kvs/removeView", timeout=5)
 
 
@@ -233,20 +238,23 @@ def view_update():
 	for ip in hashView:
 		ip_view.append(ip)
 
-	print("IP View: " + str(ip_view))
-	print("Hash View: " + str(hashView))
-	retDict = {'msg':'success'}
+	timestamp = time.clock()
+	if type == "add":
+		thePID = int(updateIndex/K)
+		retDict = {'msg':'success',"partition_id":thePID, "number_of_partitions":partitions}
+	else:
+		retDict = {'msg':'success','number_of_partitions':partitions}
 	return jsonify(retDict), status.HTTP_200_OK
 
 
 
 @app.route('/kvs/<key>', methods = ['GET', 'PUT']) 
 def index(key):
-	#strClock = request.form.get('causal_payload')
-	#if '.' in strClock:
-	#	inClock = strClock.split('.')
-	#else:
-	#	inClock = dict()
+	strClock = request.form.get('causal_payload')
+	inClock = dict()
+	if strClock != '':
+		inClock = strClock
+
 	theLen = int(len(ip_view))
 	partitions = int((theLen-1)/K)+1
 	nodeLocate = ryan_hash(key) % partitions
@@ -255,13 +263,7 @@ def index(key):
 	if endIndex > int(len(ip_view)):
 		endIndex = int(len(ip_view))
 	if IPPORT in ip_view[startIndex:endIndex]:
-		if request.method == 'PUT':
-			if key in theDict:
-				content = 'replaced: 1, // 0 if key did not exist msg: success\n'
-				helpRet = 1
-			else:
-				content = 'replaced: 0, // 1 if an existing keys val was replaced\n msg success\n'
-				helpRet = 0
+		if request.method == 'PUT':				
 			theValue = request.form.get('val')
 			theDict[key] = theValue
 			#For loop to forward put request to replicas
@@ -270,20 +272,16 @@ def index(key):
 					if ping(ip):
 						url_str = 'http://' + ip + '/kvs/replicate/' + key
 						someRes = req.put(url_str,data={'val':theValue}, timeout=6)
-					
-			if helpRet == 1:
-				retDict = {'replaced':'1, // 0 if key did not exist','msg':'success', 'owner':ip_view[nodeLocate]}
-				return jsonify(retDict), status.HTTP_200_OK
-			else:
-				retDict = {'replaced':'0, // 1 if an existing keys val was replaced','msg':'success', 'owner':ip_view[nodeLocate]}
-				return jsonify(retDict), status.HTTP_201_CREATED	
+			retDict = {"msg":"success","partition_id":nodeLocate,"causal_payload": causal_payload, "timestamp":timestamp}
+			return jsonify(retDict), status.HTTP_201_CREATED	
 		elif request.method == 'GET':
 			#check if data is stale
 			#For loop, compare vector clocks? If small vector clock here
 			#overwrite data
+			
 			if key in theDict:
 				theRet = theDict[key]
-				retDict = {'msg':'success', 'value':theRet, 'owner': ip_view[nodeLocate]}
+				retDict = {'msg':'success', 'value':theRet, 'partition_id':nodeLocate, 'causal_payload':causal_payload, 'timestamp':timestamp}
 				#For loop to update stale datas
 				return jsonify(retDict),status.HTTP_200_OK
 			else:
@@ -292,18 +290,25 @@ def index(key):
 		else:
 			return jsonify('Error: Please call a GET or PUT method.\n')
 	else:
-		url_str = 'http://' + ip_view[nodeLocate] + '/kvs/' + key
 		if request.method == 'PUT':
 			#For loop, ping nodes in clusters, PUT to first alive
+			ip = getLiveIP(ip_view[startIndex:endIndex])
+			if ip == "ERROR":
+				retDict = {"error":"Cannot connect to any node in partition: " + str(nodeLocate)}
+				return jsonify(retDict), HTTP_503_UNAVAILABLE
 			theValue = request.form.get('val')
-			req.data = theValue
-			resp = req.put(url_str,data=dict(val=theValue))
+			url_str = 'http://' + ip + '/kvs/' + key
+			resp = req.put(url_str,data={"val":theValue,"causal_payload":causal_payload})
 			dRet = json.loads(resp.content)
 			return jsonify(dRet), resp.status_code
 		elif request.method == 'GET':
 			#For loop, ping nodes in cluster, GET to first alive OR compare all live VC's
-			
-			resp = req.get(url_str)
+			ip = getLiveIP(ip_view[startIndex:endIndex])
+			if ip == "ERROR":
+				retDict = {"error":"Cannot connect to any node in partition: " + str(nodeLocate)}
+				return jsonify(retDict), HTTP_503_UNAVAILABLE
+			url_str = 'http://' + ip + '/kvs/' + key
+			resp = req.get(url_str,data={"causal_payload":causal_payload})
 			dRet = json.loads(resp.content)
 			return jsonify(dRet), resp.status_code
 
@@ -335,7 +340,6 @@ def getDict():
 def delDict():
 	theDict = dict()
 	someRet = getLiveIP(ip_view)
-	print(someRet)
 	return jsonify("del complete")
 
 @app.route("/kvs/replicate/<key>", methods=["PUT"])
@@ -345,8 +349,42 @@ def replicatePut(key):
 	return jsonify("replicated")
 
 
+@app.route("/kvs/replaceClock", methods=["PUT"])
+def replaceClock(key):
+	theValue = request.form.get('clock')
+	theDict[key] = theValue
+	return jsonify("replicated")
 
-def compareClocks(thisClock,incClock):
+
+@app.route("/kvs/getClock")
+def getClock():
+	return jsonify(causal_payload)
+
+
+
+
+def greaterThan(clockA, clockB):
+	for key in clockA:
+		if key not in clockB:
+			clockB[key] = 0
+	for key in clockB:
+		if key not in clockA:
+			clockA[key] = 0
+	isBigger = False
+	for key in clockA:
+		if clockA[key] < clockB[key]:
+			return False
+		if clockA[key]>clockB[key]:
+			isBigger = True
+	return isBigger
+
+
+def incrementClock():
+	theVal = int(causal_payload[IPPORT])
+	++theVal
+	causal_payload[IPPORT] == str(theVal)
+
+def maxClocks(thisClock,incClock):
 	for key in incClock:
 		if key in thisClock:
 			if incClock[key] > thisClock[key]:
