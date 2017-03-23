@@ -24,8 +24,7 @@ if len(ip_view) > 0:
 def getPartitionID():
 	indexIP = ip_view.index(IPPORT)
 	partitionID = int(indexIP/K)
-	retDict = {"msg":"success","partition_id": str(partitionID)}
-	print(str(retDict))
+	retDict = {"msg":"success","partition_id":partitionID}
 	return jsonify(retDict), status.HTTP_200_OK
 
 @app.route("/kvs/get_all_partition_ids")
@@ -49,7 +48,6 @@ def getAllPartitionIDs():
 		endIndex = int(len(ip_view))
 	for i in range(startIndex, endIndex):
 		partitionNodes.append(ip_view[i])
-	print(str(partitionNodes))
 	retDict = {"msg":"success","partition_members":partitionNodes}
 	return jsonify(retDict), status.HTTP_200_OK
 	
