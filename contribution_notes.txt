@@ -1,0 +1,4 @@
++cwbaldri: Caitlin Baldridge: Developed Python, debugged
++rfkwok: Ryan Kwok: Developed Python, debugged
++emjgreen: Emmett Greenberg: Developed Python, debugged
++hbingham37: Hunter Bingham: Primary Python Developer, Debugger, Docker
